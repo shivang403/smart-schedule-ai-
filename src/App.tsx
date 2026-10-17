@@ -310,6 +310,13 @@ export function App() {
     await saveTimetable(updated);
   };
 
+  const handleUpdateTimetable = async (updated: TimetableDoc) => {
+    await saveTimetable(updated);
+    setCurrentTimetable(updated);
+    setTimetables((prev) => prev.map((item) => item.id === updated.id ? updated : item));
+    setFirebaseError(null);
+  };
+
   if (isAuthLoading) {
     return <div className="min-h-screen grid place-items-center bg-slate-50 text-slate-600">Checking sign-in…</div>;
   }
@@ -428,6 +435,10 @@ export function App() {
               onOpenSavedModal={() => setIsSavedModalOpen(true)}
               onNavigateToGemini={() => setActiveTab('ai-insights')}
               onUpdateTimetableInsights={handleUpdateTimetableInsights}
+              onUpdateTimetable={handleUpdateTimetable}
+              teachers={teachers}
+              rooms={rooms}
+              subjects={subjects}
               isGenerating={isGenerating}
             />
             )}
