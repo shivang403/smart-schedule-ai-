@@ -2,6 +2,7 @@ import React, { lazy, Suspense, useState, useEffect } from 'react';
 import { AlertCircle, X } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
+import { SignInView } from './components/SignInView';
 const DashboardView = lazy(() => import('./components/DashboardView').then((module) => ({ default: module.DashboardView })));
 const SetupDataView = lazy(() => import('./components/SetupDataView').then((module) => ({ default: module.SetupDataView })));
 const TimetableView = lazy(() => import('./components/TimetableView').then((module) => ({ default: module.TimetableView })));
@@ -35,7 +36,10 @@ import {
   deleteTimetable,
   loadDemoDataToFirestore,
   getFirestoreConnectionInfo,
+  signOutUser,
+  subscribeToAuthState,
 } from './lib/firebase';
+import type { User } from 'firebase/auth';
 import { generateSmartTimetable } from './utils/scheduler';
 import { DEMO_SECTIONS } from './utils/demoData';
 
@@ -56,12 +60,31 @@ export function App() {
   const [isSavedModalOpen, setIsSavedModalOpen] = useState<boolean>(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState<boolean>(false);
   const [setupSubTab, setSetupSubTab] = useState<'teachers' | 'rooms' | 'subjects' | 'constraints'>('teachers');
+  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
 
   const dbInfo = getFirestoreConnectionInfo();
   const [firebaseError, setFirebaseError] = useState<string | null>(dbInfo.error);
 
+  useEffect(() => subscribeToAuthState((user) => {
+    setAuthUser(user);
+    setIsAuthLoading(false);
+  }), []);
+
   // Load initial data from Firestore
   useEffect(() => {
+    if (isAuthLoading) return;
+    if (!authUser) {
+      setTeachers([]);
+      setRooms([]);
+      setSubjects([]);
+      setConstraints([]);
+      setTimetables([]);
+      setCurrentTimetable(null);
+      return;
+    }
+
+    let cancelled = false;
     async function loadData() {
       if (!dbInfo.isConfigured) {
         setFirebaseError(dbInfo.error);
@@ -77,6 +100,7 @@ export function App() {
             getSavedTimetables(),
           ]);
 
+        if (cancelled) return;
         setTeachers(loadedTeachers);
         setRooms(loadedRooms);
         setSubjects(loadedSubjects);
@@ -101,11 +125,12 @@ export function App() {
         }
       } catch (err: any) {
         console.error('Initial data loading error from Firestore:', err);
-        setFirebaseError(err?.message || 'Failed to connect to Firestore database.');
+        if (!cancelled) setFirebaseError(err?.message || 'Failed to connect to Firestore database.');
       }
     }
     loadData();
-  }, []);
+    return () => { cancelled = true; };
+  }, [authUser?.uid, isAuthLoading]);
 
   // Generate Smart Timetable action
   const handleGenerateTimetable = async () => {
@@ -270,6 +295,14 @@ export function App() {
     await saveTimetable(updated);
   };
 
+  if (isAuthLoading) {
+    return <div className="min-h-screen grid place-items-center bg-slate-50 text-slate-600">Checking sign-in…</div>;
+  }
+
+  if (!authUser) {
+    return <SignInView configError={dbInfo.error} />;
+  }
+
   return (
     <div className="flex h-screen w-full bg-slate-50 font-sans text-slate-900 overflow-hidden">
       {/* Dark Slate Navigation Sidebar matching Clean Utility Design Theme */}
@@ -304,6 +337,8 @@ export function App() {
           onOpenSaved={() => setIsSavedModalOpen(true)}
           onGenerate={handleGenerateTimetable}
           isGenerating={isGenerating}
+          signedInEmail={authUser.email || undefined}
+          onSignOut={signOutUser}
         />
 
         {/* Scrollable Main Content */}
