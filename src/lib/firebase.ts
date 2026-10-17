@@ -1,5 +1,13 @@
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
 import {
+  getAuth,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut,
+  Auth,
+  User,
+} from 'firebase/auth';
+import {
   getFirestore,
   collection,
   getDocs,
@@ -10,7 +18,6 @@ import {
   query,
   orderBy,
   Firestore,
-  getDocFromServer,
 } from 'firebase/firestore';
 import { Teacher, Room, Subject, Constraint, TimetableDoc } from '../types';
 import { DEMO_TEACHERS, DEMO_ROOMS, DEMO_SUBJECTS, DEMO_CONSTRAINTS } from '../utils/demoData';
@@ -96,6 +103,7 @@ const firebaseConfig = {
 
 let app: FirebaseApp | null = null;
 let db: Firestore | null = null;
+let auth: Auth | null = null;
 let isConfigured = false;
 let isConnected = false;
 let configError: string | null = null;
@@ -112,21 +120,33 @@ if (!firebaseConfig.apiKey || firebaseConfig.apiKey.length === 0) {
       app = getApps()[0];
     }
     db = getFirestore(app);
+    auth = getAuth(app);
     isConfigured = true;
     isConnected = true;
-
-    // Test Firestore connection immediately on app boot (per Firebase skill)
-    getDocFromServer(doc(db, 'test', 'connection'))
-      .catch((error: unknown) => {
-        if (error instanceof Error && error.message.includes('the client is offline')) {
-          console.warn('Firestore offline notice: check Firebase credentials and network connectivity.');
-        }
-      });
   } catch (err: any) {
     configError = err?.message || 'Failed to initialize Firebase.';
     isConfigured = false;
     isConnected = false;
   }
+}
+
+export function subscribeToAuthState(callback: (user: User | null) => void) {
+  if (!auth) {
+    callback(null);
+    return () => undefined;
+  }
+  return onAuthStateChanged(auth, callback);
+}
+
+export async function signIn(email: string, password: string): Promise<void> {
+  if (!auth) {
+    throw new Error(configError || 'Firebase Authentication is not configured.');
+  }
+  await signInWithEmailAndPassword(auth, email, password);
+}
+
+export async function signOutUser(): Promise<void> {
+  if (auth) await signOut(auth);
 }
 
 export function getFirestoreConnectionInfo() {

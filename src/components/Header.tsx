@@ -1,5 +1,5 @@
 import React from 'react';
-import { Menu, RefreshCw, Zap, Archive, Download, Sparkles } from 'lucide-react';
+import { Menu, RefreshCw, Zap, Archive, LogOut } from 'lucide-react';
 
 interface HeaderProps {
   title?: string;
@@ -7,6 +7,8 @@ interface HeaderProps {
   onOpenSaved: () => void;
   onGenerate: () => void;
   isGenerating?: boolean;
+  signedInEmail?: string;
+  onSignOut: () => void | Promise<void>;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -15,6 +17,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSaved,
   onGenerate,
   isGenerating = false,
+  signedInEmail,
+  onSignOut,
 }) => {
   return (
     <header className="h-16 bg-white border-b border-slate-200 px-4 sm:px-8 flex items-center justify-between shrink-0 sticky top-0 z-30">
@@ -32,6 +36,19 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3">
+        {signedInEmail && (
+          <span className="hidden max-w-48 truncate text-xs text-slate-500 xl:block" title={signedInEmail}>
+            {signedInEmail}
+          </span>
+        )}
+        <button
+          onClick={onSignOut}
+          className="px-3 py-2 border border-slate-200 rounded-lg text-xs sm:text-sm font-medium hover:bg-slate-50 text-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer"
+          aria-label="Sign out"
+        >
+          <LogOut className="w-4 h-4" />
+          <span className="hidden sm:inline">Sign out</span>
+        </button>
         <button
           onClick={onOpenSaved}
           className="px-3 sm:px-4 py-2 border border-slate-200 rounded-lg text-xs sm:text-sm font-medium hover:bg-slate-50 text-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer"
