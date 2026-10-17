@@ -41,7 +41,14 @@ import {
 } from './lib/firebase';
 import type { User } from 'firebase/auth';
 import { generateSmartTimetable } from './utils/scheduler';
-import { DEMO_SECTIONS } from './utils/demoData';
+
+function getConfiguredSections(configuredSubjects: Subject[]): string[] {
+  return Array.from(new Set(
+    configuredSubjects.flatMap((subject) => subject.classSections || [])
+      .map((section) => section.trim())
+      .filter(Boolean)
+  )).sort((a, b) => a.localeCompare(b));
+}
 
 export function App() {
   const [activeTab, setActiveTab] = useState<
@@ -116,7 +123,7 @@ export function App() {
             loadedRooms,
             loadedSubjects,
             loadedConstraints,
-            DEMO_SECTIONS,
+            getConfiguredSections(loadedSubjects),
             { name: `College Master Schedule ${new Date().toLocaleDateString()}` }
           );
           setCurrentTimetable(initial);
@@ -139,6 +146,14 @@ export function App() {
       return;
     }
 
+    const sections = getConfiguredSections(subjects);
+    if (sections.length === 0) {
+      alert('Add at least one branch or class section to each subject before generating a timetable.');
+      setActiveTab('setup');
+      setSetupSubTab('subjects');
+      return;
+    }
+
     setIsGenerating(true);
     try {
       // Algorithmic optimization pass
@@ -149,7 +164,7 @@ export function App() {
         rooms,
         subjects,
         constraints,
-        DEMO_SECTIONS,
+        sections,
         {
           name: `College Master Schedule ${new Date().toLocaleDateString()} (${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`,
         }
@@ -201,7 +216,7 @@ export function App() {
       setConstraints(c);
 
       // 4. Generate schedule from the new data and persist to Firestore
-      const generated = generateSmartTimetable(t, r, s, c, DEMO_SECTIONS, {
+      const generated = generateSmartTimetable(t, r, s, c, getConfiguredSections(s), {
         name: `College Master Schedule ${new Date().toLocaleDateString()}`,
       });
       await saveTimetable(generated);

@@ -1,7 +1,5 @@
 import { Teacher, Room, Subject, Constraint } from '../types';
 
-export const DEMO_SECTIONS = ['CS-A', 'CS-B', 'IT-A'];
-
 export const DEMO_TEACHERS: Teacher[] = [
   {
     id: 't-sharma',

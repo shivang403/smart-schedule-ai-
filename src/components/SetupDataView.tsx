@@ -90,7 +90,7 @@ export const SetupDataView: React.FC<SetupDataViewProps> = ({
   const [subjectTeacherId, setSubjectTeacherId] = useState('');
   const [subjectSessions, setSubjectSessions] = useState(3);
   const [subjectRoomType, setSubjectRoomType] = useState<Subject['preferredRoomType']>('Lecture Hall');
-  const [subjectSections, setSubjectSections] = useState<string[]>(['CS-A', 'CS-B']);
+  const [subjectSections, setSubjectSections] = useState('');
   const [isSavingSubject, setIsSavingSubject] = useState(false);
 
   // Constraint Form State
@@ -180,6 +180,13 @@ export const SetupDataView: React.FC<SetupDataViewProps> = ({
       showFeedback('error', 'Please assign a teacher to this subject.');
       return;
     }
+    const classSections: string[] = Array.from(new Set<string>(
+      subjectSections.split(/[,\n]/).map((section) => section.trim()).filter(Boolean)
+    ));
+    if (classSections.length === 0) {
+      showFeedback('error', 'Enter at least one branch or class section, such as CSE-A or ECE-A.');
+      return;
+    }
     setIsSavingSubject(true);
     try {
       const newSubject: Subject = {
@@ -189,12 +196,13 @@ export const SetupDataView: React.FC<SetupDataViewProps> = ({
         assignedTeacherId: teacherId,
         weeklySessionsRequired: Number(subjectSessions) || 3,
         preferredRoomType: subjectRoomType,
-        classSections: subjectSections.length > 0 ? subjectSections : ['CS-A'],
+        classSections,
         createdAt: new Date().toISOString(),
       };
       await onAddSubject(newSubject);
       setSubjectCode('');
       setSubjectName('');
+      setSubjectSections('');
       showFeedback('success', `Subject "${newSubject.code}: ${newSubject.name}" saved to Firestore!`);
     } catch (err: any) {
       showFeedback('error', err?.message || 'Failed to save subject');
@@ -256,16 +264,6 @@ export const SetupDataView: React.FC<SetupDataViewProps> = ({
       setTeacherUnavailableDays(teacherUnavailableDays.filter((d) => d !== day));
     } else {
       setTeacherUnavailableDays([...teacherUnavailableDays, day]);
-    }
-  };
-
-  const toggleSection = (sec: string) => {
-    if (subjectSections.includes(sec)) {
-      if (subjectSections.length > 1) {
-        setSubjectSections(subjectSections.filter((s) => s !== sec));
-      }
-    } else {
-      setSubjectSections([...subjectSections, sec]);
     }
   };
 
@@ -743,26 +741,20 @@ export const SetupDataView: React.FC<SetupDataViewProps> = ({
                 </div>
               </div>
 
-              {/* Class Sections Checkboxes */}
+              {/* Dynamic class sections / branches */}
               <div>
-                <label className="block text-slate-700 font-bold mb-1.5">Class Sections Enrolled</label>
-                <div className="flex items-center gap-2">
-                  {['CS-A', 'CS-B', 'IT-A'].map((sec) => (
-                    <button
-                      type="button"
-                      key={sec}
-                      onClick={() => toggleSection(sec)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
-                        subjectSections.includes(sec)
-                          ? 'bg-emerald-600 text-white border-emerald-600'
-                          : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      {sec}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-[11px] text-slate-400 mt-1">Each section will receive {subjectSessions} scheduled slots.</p>
+                <label className="block text-slate-700 font-bold mb-1.5">Branches / Class Sections</label>
+                <input
+                  type="text"
+                  value={subjectSections}
+                  onChange={(e) => setSubjectSections(e.target.value)}
+                  placeholder="e.g. CSE-A, CSE-B, ECE-A"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  required
+                />
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Enter one or more names separated by commas. You can add any branch or section; each gets {subjectSessions} sessions.
+                </p>
               </div>
 
               <button

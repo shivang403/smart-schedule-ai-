@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Download,
   RefreshCw,
@@ -65,9 +65,14 @@ export const TimetableView: React.FC<TimetableViewProps> = ({
   onUpdateTimetableInsights,
   isGenerating,
 }) => {
-  const [selectedSection, setSelectedSection] = useState<string>('ALL');
+  const [selectedSection, setSelectedSection] = useState<string>('');
   const [selectedTeacher, setSelectedTeacher] = useState<string>('ALL');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  useEffect(() => {
+    setSelectedSection('');
+    setSelectedTeacher('ALL');
+  }, [timetable?.id]);
 
   if (!timetable) {
     return (
@@ -92,13 +97,20 @@ export const TimetableView: React.FC<TimetableViewProps> = ({
 
   // Filter slots
   const filteredSlots = timetable.slots.filter((slot) => {
-    if (selectedSection !== 'ALL' && slot.classSection !== selectedSection) return false;
+    if (!selectedSection || slot.classSection !== selectedSection) return false;
     if (selectedTeacher !== 'ALL' && slot.teacherName !== selectedTeacher) return false;
     return true;
   });
 
-  const availableSections = Array.from(new Set(timetable.slots.map((s) => s.classSection)));
-  const availableTeachers = Array.from(new Set(timetable.slots.map((s) => s.teacherName)));
+  const availableSections = Array.from(new Set<string>([
+    ...(timetable.classSections || []),
+    ...timetable.slots.map((slot) => slot.classSection),
+  ])).filter(Boolean).sort((a, b) => a.localeCompare(b));
+  const availableTeachers = Array.from(new Set<string>(
+    timetable.slots
+      .filter((slot) => slot.classSection === selectedSection)
+      .map((slot) => slot.teacherName)
+  )).sort((a, b) => a.localeCompare(b));
 
   const getSlot = (day: DayOfWeek, slotIndex: number): TimetableSlotEntry | undefined => {
     return filteredSlots.find(
@@ -107,6 +119,7 @@ export const TimetableView: React.FC<TimetableViewProps> = ({
   };
 
   const handleDownloadCSV = () => {
+    if (!selectedSection) return;
     const csvData = exportTimetableToCSV(timetable, selectedSection);
     const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -174,38 +187,26 @@ export const TimetableView: React.FC<TimetableViewProps> = ({
       {/* Filter and Export Bar */}
       <div className="bg-white px-4 py-3 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1">
-            <Filter className="w-3.5 h-3.5" /> Section:
-          </span>
-
-          <button
-            onClick={() => setSelectedSection('ALL')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-              selectedSection === 'ALL'
-                ? 'bg-slate-900 text-white'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            All Sections
-          </button>
-
-          {availableSections.map((sec) => (
-            <button
-              key={sec}
-              onClick={() => setSelectedSection(sec)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                selectedSection === sec
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:bg-slate-100'
-              }`}
+          <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+            <Filter className="w-3.5 h-3.5" /> Choose branch / section:
+            <select
+              value={selectedSection}
+              onChange={(event) => {
+                setSelectedSection(event.target.value);
+                setSelectedTeacher('ALL');
+              }}
+              className="normal-case text-sm font-medium text-slate-700 border border-slate-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
-              {sec}
-            </button>
-          ))}
+              <option value="">Select a branch or section…</option>
+              {availableSections.map((section) => (
+                <option key={section} value={section}>{section}</option>
+              ))}
+            </select>
+          </label>
         </div>
 
         <div className="flex items-center gap-3">
-          {availableTeachers.length > 0 && (
+          {selectedSection && availableTeachers.length > 0 && (
             <select
               value={selectedTeacher}
               onChange={(e) => setSelectedTeacher(e.target.value)}
@@ -222,7 +223,8 @@ export const TimetableView: React.FC<TimetableViewProps> = ({
 
           <button
             onClick={handleDownloadCSV}
-            className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 cursor-pointer"
+            disabled={!selectedSection}
+            className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Download className="w-3.5 h-3.5 text-slate-500" />
             <span>CSV</span>
@@ -230,7 +232,14 @@ export const TimetableView: React.FC<TimetableViewProps> = ({
         </div>
       </div>
 
-      {/* Main 12-Column Layout matching Design HTML */}
+      {!selectedSection ? (
+        <div className="rounded-2xl border border-dashed border-indigo-200 bg-white px-6 py-16 text-center shadow-sm">
+          <Layers className="mx-auto mb-3 h-10 w-10 text-indigo-400" />
+          <h2 className="text-lg font-bold text-slate-800">Choose a branch timetable</h2>
+          <p className="mt-2 text-sm text-slate-500">Select a branch or class section above to view its weekly schedule.</p>
+        </div>
+      ) : (
+      /* Main 12-Column Layout matching Design HTML */
       <div className="grid grid-cols-12 gap-6">
         {/* Left 9 Columns: Monday-to-Friday Timetable Grid */}
         <div className="col-span-12 xl:col-span-9 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
@@ -413,6 +422,7 @@ export const TimetableView: React.FC<TimetableViewProps> = ({
           )}
         </div>
       </div>
+      )}
     </div>
   );
 };
