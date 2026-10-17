@@ -9,6 +9,10 @@ import {
   Info,
   Layers,
   ArrowRight,
+  Printer,
+  Pencil,
+  X,
+  Save,
 } from 'lucide-react';
 import {
   TimetableDoc,
@@ -19,6 +23,10 @@ import {
   TIME_SLOTS,
   Constraint,
   GeminiInsights,
+  Teacher,
+  Room,
+  Subject,
+  ScheduleConflict,
 } from '../types';
 import { exportTimetableToCSV } from '../utils/scheduler';
 
@@ -32,6 +40,10 @@ interface TimetableViewProps {
   onOpenSavedModal: () => void;
   onNavigateToGemini: () => void;
   onUpdateTimetableInsights?: (insights: GeminiInsights) => void;
+  onUpdateTimetable?: (timetable: TimetableDoc) => Promise<void>;
+  teachers: Teacher[];
+  rooms: Room[];
+  subjects: Subject[];
   isGenerating: boolean;
 }
 
@@ -63,11 +75,19 @@ export const TimetableView: React.FC<TimetableViewProps> = ({
   onOpenSavedModal,
   onNavigateToGemini,
   onUpdateTimetableInsights,
+  onUpdateTimetable,
+  teachers,
+  rooms,
+  subjects,
   isGenerating,
 }) => {
   const [selectedSection, setSelectedSection] = useState<string>('');
   const [selectedTeacher, setSelectedTeacher] = useState<string>('ALL');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [editingSlot, setEditingSlot] = useState<TimetableSlotEntry | null>(null);
+  const [selectedEditSection, setSelectedEditSection] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [editError, setEditError] = useState('');
 
   useEffect(() => {
     setSelectedSection('');
@@ -131,6 +151,84 @@ export const TimetableView: React.FC<TimetableViewProps> = ({
     document.body.removeChild(link);
   };
 
+  const handlePrint = () => window.print();
+
+  const handleSaveSlot = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!editingSlot || !onUpdateTimetable) return;
+    const form = new FormData(event.currentTarget);
+    const subject = subjects.find((item) => item.id === form.get('subjectId'));
+    const teacher = teachers.find((item) => item.id === form.get('teacherId'));
+    const room = rooms.find((item) => item.id === form.get('roomId'));
+    const classSection = String(form.get('classSection') || editingSlot.classSection).trim();
+    const day = String(form.get('day')) as DayOfWeek;
+    const timeSlotIndex = Number(form.get('timeSlotIndex'));
+    if (!subject || !teacher || !room || !DAYS_OF_WEEK.includes(day) || !TIME_SLOTS[timeSlotIndex]) return;
+    if (!subject.classSections.includes(classSection)) {
+      setEditError(`Subject ${subject.code} is not assigned to section ${classSection}.`);
+      return;
+    }
+
+    const updatedSlots = timetable.slots.map((slot) => slot.id === editingSlot.id ? {
+      ...slot,
+      day,
+      timeSlotIndex,
+      timeSlot: TIME_SLOTS[timeSlotIndex],
+      subjectId: subject.id,
+      subjectCode: subject.code,
+      subjectName: subject.name,
+      teacherId: teacher.id,
+      teacherName: teacher.name,
+      roomId: room.id,
+      roomName: room.name,
+      classSection,
+    } : slot);
+    const bySlot = new Map<string, TimetableSlotEntry[]>();
+    updatedSlots.forEach((slot) => {
+      const key = `${slot.day}|${slot.timeSlotIndex}`;
+      bySlot.set(key, [...(bySlot.get(key) || []), slot]);
+    });
+    const conflicts: ScheduleConflict[] = [];
+    bySlot.forEach((sameTime) => {
+      const checks: Array<{ type: ScheduleConflict['type']; label: string; getId: (slot: TimetableSlotEntry) => string }> = [
+        { type: 'SECTION_CLASH', label: 'section', getId: (slot) => slot.classSection },
+        { type: 'TEACHER_CLASH', label: 'teacher', getId: (slot) => slot.teacherId },
+        { type: 'ROOM_CLASH', label: 'room', getId: (slot) => slot.roomId },
+      ];
+      checks.forEach(({ type, label, getId }) => {
+        const seen = new Set<string>();
+        sameTime.forEach((slot) => {
+          const id = getId(slot);
+          if (seen.has(id)) conflicts.push({
+            id: `edit-${type}-${slot.id}`,
+            type,
+            description: `Edited timetable has a ${label} conflict for ${slot.subjectCode} (${slot.classSection}) on ${slot.day} at ${slot.timeSlot}.`,
+            day: slot.day,
+            timeSlot: slot.timeSlot,
+            involvedEntities: [slot.classSection, slot.teacherName, slot.roomName],
+          });
+          seen.add(id);
+        });
+      });
+    });
+    const updated: TimetableDoc = {
+      ...timetable,
+      slots: updatedSlots,
+      classSections: Array.from(new Set([...timetable.classSections, ...updatedSlots.map((slot) => slot.classSection)])),
+      conflicts,
+      conflictCount: conflicts.length + timetable.unscheduledItems.length,
+      geminiInsights: undefined,
+    };
+    setIsSavingEdit(true);
+    try {
+      await onUpdateTimetable(updated);
+      setEditingSlot(null);
+      setEditError('');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
   const handleQuickGeminiAnalyze = async () => {
     if (!timetable || !onUpdateTimetableInsights) return;
     setIsAnalyzing(true);
@@ -159,7 +257,7 @@ export const TimetableView: React.FC<TimetableViewProps> = ({
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           <div className="text-slate-400 text-xs font-semibold uppercase mb-1 tracking-wider">Teachers</div>
-          <div className="text-2xl font-bold text-slate-800">{teacherCount || 14}</div>
+          <div className="text-2xl font-bold text-slate-800">{teacherCount}</div>
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
@@ -169,7 +267,7 @@ export const TimetableView: React.FC<TimetableViewProps> = ({
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
           <div className="text-slate-400 text-xs font-semibold uppercase mb-1 tracking-wider">Subjects</div>
-          <div className="text-2xl font-bold text-slate-800">{subjectCount || 22}</div>
+          <div className="text-2xl font-bold text-slate-800">{subjectCount}</div>
         </div>
 
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
@@ -185,7 +283,7 @@ export const TimetableView: React.FC<TimetableViewProps> = ({
       </div>
 
       {/* Filter and Export Bar */}
-      <div className="bg-white px-4 py-3 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-3">
+      <div className="no-print bg-white px-4 py-3 rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2">
             <Filter className="w-3.5 h-3.5" /> Choose branch / section:
@@ -229,6 +327,13 @@ export const TimetableView: React.FC<TimetableViewProps> = ({
             <Download className="w-3.5 h-3.5 text-slate-500" />
             <span>CSV</span>
           </button>
+          <button
+            onClick={handlePrint}
+            disabled={!selectedSection}
+            className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Printer className="w-3.5 h-3.5 text-slate-500" /> Print
+          </button>
         </div>
       </div>
 
@@ -240,7 +345,7 @@ export const TimetableView: React.FC<TimetableViewProps> = ({
         </div>
       ) : (
       /* Main 12-Column Layout matching Design HTML */
-      <div className="grid grid-cols-12 gap-6">
+      <div className="print-timetable grid grid-cols-12 gap-6">
         {/* Left 9 Columns: Monday-to-Friday Timetable Grid */}
         <div className="col-span-12 xl:col-span-9 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden">
           {/* Header Row: Blank + 5 Days */}
@@ -268,6 +373,7 @@ export const TimetableView: React.FC<TimetableViewProps> = ({
               slotIndex={0}
               days={DAYS_OF_WEEK}
               getSlot={getSlot}
+              onEdit={(slot) => { setEditingSlot(slot); setSelectedEditSection(slot.classSection); setEditError(''); }}
             />
 
             {/* Slot 1: 10 - 11 AM */}
@@ -276,6 +382,7 @@ export const TimetableView: React.FC<TimetableViewProps> = ({
               slotIndex={1}
               days={DAYS_OF_WEEK}
               getSlot={getSlot}
+              onEdit={(slot) => { setEditingSlot(slot); setSelectedEditSection(slot.classSection); setEditError(''); }}
             />
 
             {/* Slot 2: 11 - 12 PM */}
@@ -284,6 +391,7 @@ export const TimetableView: React.FC<TimetableViewProps> = ({
               slotIndex={2}
               days={DAYS_OF_WEEK}
               getSlot={getSlot}
+              onEdit={(slot) => { setEditingSlot(slot); setSelectedEditSection(slot.classSection); setEditError(''); }}
             />
 
             {/* Break & Lab Sessions (12 - 2 PM) */}
@@ -302,6 +410,7 @@ export const TimetableView: React.FC<TimetableViewProps> = ({
               slotIndex={4}
               days={DAYS_OF_WEEK}
               getSlot={getSlot}
+              onEdit={(slot) => { setEditingSlot(slot); setSelectedEditSection(slot.classSection); setEditError(''); }}
             />
 
             {/* Slot 5: 3 - 4 PM */}
@@ -310,14 +419,15 @@ export const TimetableView: React.FC<TimetableViewProps> = ({
               slotIndex={5}
               days={DAYS_OF_WEEK}
               getSlot={getSlot}
+              onEdit={(slot) => { setEditingSlot(slot); setSelectedEditSection(slot.classSection); setEditError(''); }}
             />
           </div>
         </div>
 
         {/* Right 3 Columns: Gemini AI Insights & Constraints Panel (matching Design HTML) */}
-        <div className="col-span-12 xl:col-span-3 flex flex-col gap-6">
+        <div className="no-print col-span-12 xl:col-span-3 flex flex-col gap-6">
           {/* Gemini AI Insights Box */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 flex flex-col">
             <div className="flex items-center gap-2 mb-4">
               <Sparkles className="w-5 h-5 text-indigo-500" />
               <h2 className="font-bold text-sm text-slate-700 uppercase tracking-wide">
@@ -337,13 +447,7 @@ export const TimetableView: React.FC<TimetableViewProps> = ({
                       <li key={i}>{r}</li>
                     ))}
                   </ul>
-                ) : (
-                  <ul className="text-[11px] text-slate-600 space-y-1 list-disc ml-3">
-                    <li>Zero room conflicts detected.</li>
-                    <li>Balanced teaching load across faculty.</li>
-                    <li>Optimal travel paths between classrooms.</li>
-                  </ul>
-                )}
+                ) : <p className="text-[11px] text-slate-600">Run the analysis to see findings for this timetable.</p>}
               </div>
 
               {/* Improvement */}
@@ -352,8 +456,7 @@ export const TimetableView: React.FC<TimetableViewProps> = ({
                   Improvement:
                 </div>
                 <p className="text-[11px] text-slate-600">
-                  {activeInsights?.oneImprovementSuggestion ||
-                    "Consider grouping specialized lab sessions to optimize equipment access and reduce changeovers."}
+                  {activeInsights?.oneImprovementSuggestion || 'No analysis yet.'}
                 </p>
               </div>
 
@@ -364,7 +467,7 @@ export const TimetableView: React.FC<TimetableViewProps> = ({
                 </div>
                 <p className="text-[11px] text-slate-600">
                   {activeInsights?.qualitySummary ||
-                    `High quality schedule with ${timetable.roomUtilizationRate || 74}% room utilization and ${timetable.conflictCount} collisions.`}
+                    `${timetable.roomUtilizationRate}% room utilization and ${timetable.conflictCount} reported conflicts.`}
                 </p>
               </div>
             </div>
@@ -385,22 +488,11 @@ export const TimetableView: React.FC<TimetableViewProps> = ({
               Constraints
             </div>
             <div className="space-y-2.5">
-              <div className="flex items-center gap-2 text-[11px] text-slate-600">
-                <div className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></div>
-                <span>No class before 9 AM</span>
-              </div>
-              <div className="flex items-center gap-2 text-[11px] text-slate-600">
-                <div className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></div>
-                <span>Max 2 consecutive classes/teacher</span>
-              </div>
-              <div className="flex items-center gap-2 text-[11px] text-slate-600">
-                <div className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></div>
-                <span>Dr. Sharma unavailable on Wednesday</span>
-              </div>
-              <div className="flex items-center gap-2 text-[11px] text-slate-600">
-                <div className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></div>
-                <span>Room 101 unavailable after 2 PM</span>
-              </div>
+              {constraints.filter((constraint) => constraint.enabled).length ? constraints.filter((constraint) => constraint.enabled).map((constraint) => (
+                <div key={constraint.id} className="flex items-center gap-2 text-[11px] text-slate-600">
+                  <div className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></div><span>{constraint.title}</span>
+                </div>
+              )) : <p className="text-[11px] text-slate-500">No active constraints configured.</p>}
             </div>
           </div>
 
@@ -423,6 +515,21 @@ export const TimetableView: React.FC<TimetableViewProps> = ({
         </div>
       </div>
       )}
+      {editingSlot && (
+        <div className="fixed inset-0 z-[100] grid place-items-center bg-slate-950/50 p-4" role="dialog" aria-modal="true" aria-labelledby="edit-slot-title">
+          <form onSubmit={handleSaveSlot} className="w-full max-w-lg space-y-4 rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="flex items-center justify-between"><h2 id="edit-slot-title" className="text-lg font-bold">Edit timetable class</h2><button type="button" onClick={() => setEditingSlot(null)} aria-label="Close editor"><X className="h-5 w-5" /></button></div>
+            <p className="text-sm text-slate-500">Changes save to this timetable. Review conflicts after moving a class.</p>
+            <label className="block text-sm font-medium">Section<select name="classSection" value={selectedEditSection} onChange={(event) => { setSelectedEditSection(event.target.value); setEditError(''); }} className="mt-1 w-full rounded-lg border p-2">{availableSections.map((section) => <option key={section}>{section}</option>)}</select></label>
+            <label className="block text-sm font-medium">Subject<select name="subjectId" defaultValue={editingSlot.subjectId} onChange={() => setEditError('')} className="mt-1 w-full rounded-lg border p-2">{subjects.filter((item) => item.classSections.includes(selectedEditSection)).map((item) => <option key={item.id} value={item.id}>{item.code}: {item.name}</option>)}</select></label>
+            <label className="block text-sm font-medium">Teacher<select name="teacherId" defaultValue={editingSlot.teacherId} className="mt-1 w-full rounded-lg border p-2">{teachers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <label className="block text-sm font-medium">Room<select name="roomId" defaultValue={editingSlot.roomId} className="mt-1 w-full rounded-lg border p-2">{rooms.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <div className="grid grid-cols-2 gap-3"><label className="block text-sm font-medium">Day<select name="day" defaultValue={editingSlot.day} className="mt-1 w-full rounded-lg border p-2">{DAYS_OF_WEEK.map((day) => <option key={day}>{day}</option>)}</select></label><label className="block text-sm font-medium">Time<select name="timeSlotIndex" defaultValue={editingSlot.timeSlotIndex} className="mt-1 w-full rounded-lg border p-2">{TIME_SLOTS.map((time, index) => <option key={time} value={index}>{time}</option>)}</select></label></div>
+            {editError && <p role="alert" className="text-sm text-rose-700">{editError}</p>}
+            <div className="flex justify-end gap-2"><button type="button" onClick={() => setEditingSlot(null)} className="rounded-lg border px-4 py-2">Cancel</button><button disabled={isSavingEdit} className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-white disabled:opacity-60"><Save className="h-4 w-4" />{isSavingEdit ? 'Saving…' : 'Save changes'}</button></div>
+          </form>
+        </div>
+      )}
     </div>
   );
 };
@@ -433,7 +540,8 @@ const TimetableRow: React.FC<{
   slotIndex: number;
   days: DayOfWeek[];
   getSlot: (day: DayOfWeek, slotIndex: number) => TimetableSlotEntry | undefined;
-}> = ({ timeLabel, slotIndex, days, getSlot }) => {
+  onEdit: (slot: TimetableSlotEntry) => void;
+}> = ({ timeLabel, slotIndex, days, getSlot, onEdit }) => {
   return (
     <div className="grid grid-cols-6 border-b border-slate-50 last:border-0">
       {/* Time Label Column */}
@@ -474,6 +582,7 @@ const TimetableRow: React.FC<{
               <div className="text-[9px] font-bold text-slate-500 mt-1">
                 Sec: {slot.classSection}
               </div>
+              <button type="button" onClick={() => onEdit(slot)} className="no-print mt-1 inline-flex items-center gap-1 text-[10px] font-semibold text-indigo-700 hover:underline"><Pencil className="h-3 w-3" /> Edit</button>
             </div>
           </div>
         );
