@@ -1,14 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { lazy, Suspense, useState, useEffect } from 'react';
 import { AlertCircle, X } from 'lucide-react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
-import { Navbar } from './components/Navbar';
-import { DashboardView } from './components/DashboardView';
-import { SetupDataView } from './components/SetupDataView';
-import { TimetableView } from './components/TimetableView';
-import { ConstraintChecker } from './components/ConstraintChecker';
-import { GeminiInsightsPanel } from './components/GeminiInsightsPanel';
-import { SavedTimetablesModal } from './components/SavedTimetablesModal';
+const DashboardView = lazy(() => import('./components/DashboardView').then((module) => ({ default: module.DashboardView })));
+const SetupDataView = lazy(() => import('./components/SetupDataView').then((module) => ({ default: module.SetupDataView })));
+const TimetableView = lazy(() => import('./components/TimetableView').then((module) => ({ default: module.TimetableView })));
+const ConstraintChecker = lazy(() => import('./components/ConstraintChecker').then((module) => ({ default: module.ConstraintChecker })));
+const GeminiInsightsPanel = lazy(() => import('./components/GeminiInsightsPanel').then((module) => ({ default: module.GeminiInsightsPanel })));
+const SavedTimetablesModal = lazy(() => import('./components/SavedTimetablesModal').then((module) => ({ default: module.SavedTimetablesModal })));
 import {
   Teacher,
   Room,
@@ -280,7 +279,7 @@ export function App() {
         setupSubTab={setupSubTab}
         setSetupSubTab={setSetupSubTab}
         healthScore={currentTimetable ? currentTimetable.healthScore : null}
-        conflictCount={currentTimetable ? currentTimetable.conflictCount : 0}
+        conflictCount={currentTimetable?.conflictCount ?? null}
         dbInfo={dbInfo}
         isOpenMobile={isMobileSidebarOpen}
         onCloseMobile={() => setIsMobileSidebarOpen(false)}
@@ -329,8 +328,9 @@ export function App() {
             </div>
           )}
 
-          {activeTab === 'dashboard' && (
-            <DashboardView
+          <Suspense fallback={<div className="p-8 text-sm text-slate-500">Loading view…</div>}>
+            {activeTab === 'dashboard' && (
+              <DashboardView
               teachers={teachers}
               rooms={rooms}
               subjects={subjects}
@@ -343,10 +343,10 @@ export function App() {
               isGenerating={isGenerating}
               isLoadingDemo={isLoadingDemo}
             />
-          )}
+            )}
 
-          {activeTab === 'setup' && (
-            <SetupDataView
+            {activeTab === 'setup' && (
+              <SetupDataView
               teachers={teachers}
               rooms={rooms}
               subjects={subjects}
@@ -365,10 +365,10 @@ export function App() {
               onLoadDemoData={handleLoadDemoData}
               isLoadingDemo={isLoadingDemo}
             />
-          )}
+            )}
 
-          {activeTab === 'timetable' && (
-            <TimetableView
+            {activeTab === 'timetable' && (
+              <TimetableView
               timetable={currentTimetable}
               constraints={constraints}
               teacherCount={teachers.length}
@@ -380,10 +380,10 @@ export function App() {
               onUpdateTimetableInsights={handleUpdateTimetableInsights}
               isGenerating={isGenerating}
             />
-          )}
+            )}
 
-          {activeTab === 'constraints' && (
-            <ConstraintChecker
+            {activeTab === 'constraints' && (
+              <ConstraintChecker
               currentTimetable={currentTimetable}
               constraints={constraints}
               onNavigateToSetup={() => {
@@ -391,28 +391,33 @@ export function App() {
                 setActiveTab('setup');
               }}
             />
-          )}
+            )}
 
-          {activeTab === 'ai-insights' && (
-            <GeminiInsightsPanel
+            {activeTab === 'ai-insights' && (
+              <GeminiInsightsPanel
               currentTimetable={currentTimetable}
               constraints={constraints}
               onUpdateTimetableInsights={handleUpdateTimetableInsights}
               onNavigateToTimetable={() => setActiveTab('timetable')}
             />
-          )}
+            )}
+          </Suspense>
         </main>
       </div>
 
       {/* Saved Timetables Modal */}
-      <SavedTimetablesModal
-        isOpen={isSavedModalOpen}
-        onClose={() => setIsSavedModalOpen(false)}
-        timetables={timetables}
-        activeTimetableId={currentTimetable ? currentTimetable.id : null}
-        onSelectTimetable={handleSelectTimetable}
-        onDeleteTimetable={handleDeleteTimetable}
-      />
+      {isSavedModalOpen && (
+        <Suspense fallback={null}>
+          <SavedTimetablesModal
+            isOpen={isSavedModalOpen}
+            onClose={() => setIsSavedModalOpen(false)}
+            timetables={timetables}
+            activeTimetableId={currentTimetable ? currentTimetable.id : null}
+            onSelectTimetable={handleSelectTimetable}
+            onDeleteTimetable={handleDeleteTimetable}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

@@ -43,10 +43,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   isLoadingDemo,
 }) => {
   const activeConstraints = constraints.filter((c) => c.enabled);
-  const healthScore = currentTimetable ? currentTimetable.healthScore : 94;
-  const conflictCount = currentTimetable ? currentTimetable.conflictCount : 0;
-  const teacherScore = currentTimetable ? currentTimetable.teacherWorkloadScore : 88;
-  const roomUtil = currentTimetable ? currentTimetable.roomUtilizationRate : 74;
+  const healthScore = currentTimetable?.healthScore ?? null;
+  const conflictCount = currentTimetable?.conflictCount ?? null;
+  const teacherScore = currentTimetable?.teacherWorkloadScore ?? null;
+  const roomUtil = currentTimetable?.roomUtilizationRate ?? null;
 
   return (
     <div className="p-4 sm:p-6 space-y-6">
@@ -86,13 +86,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="text-slate-400 text-xs font-semibold uppercase mb-1 tracking-wider">Conflicts</div>
           <div
             className={`text-2xl font-bold ${
-              conflictCount === 0 ? 'text-emerald-600' : 'text-rose-600'
+              conflictCount === null ? 'text-slate-400' : conflictCount === 0 ? 'text-emerald-600' : 'text-rose-600'
             }`}
           >
-            {conflictCount}
+            {conflictCount ?? '—'}
           </div>
           <div className="text-[11px] text-slate-500 font-medium mt-1">
-            {conflictCount === 0 ? 'Optimal schedule' : 'Needs attention'}
+            {conflictCount === null ? 'Generate a timetable first' : conflictCount === 0 ? 'No clashes found' : 'Needs attention'}
           </div>
         </div>
       </div>
@@ -151,15 +151,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               Schedule Health Score
             </div>
             <div className="flex items-baseline gap-2 mb-4">
-              <span className="text-4xl font-light text-slate-900">{healthScore}</span>
-              <span className="text-emerald-600 text-sm font-semibold">/ 100</span>
+              <span className="text-4xl font-light text-slate-900">{healthScore ?? '—'}</span>
+              {healthScore !== null && <span className="text-emerald-600 text-sm font-semibold">/ 100</span>}
             </div>
             <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden mb-5">
               <div
                 className={`h-full transition-all duration-700 ${
-                  healthScore >= 80 ? 'bg-emerald-500' : healthScore >= 60 ? 'bg-amber-400' : 'bg-rose-500'
+                  healthScore === null ? 'bg-slate-300' : healthScore >= 80 ? 'bg-emerald-500' : healthScore >= 60 ? 'bg-amber-400' : 'bg-rose-500'
                 }`}
-                style={{ width: `${healthScore}%` }}
+                style={{ width: `${healthScore ?? 0}%` }}
               />
             </div>
           </div>
@@ -167,17 +167,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="space-y-2 pt-4 border-t border-slate-100 text-xs">
             <div className="flex items-center justify-between text-slate-600 font-medium">
               <span>Clash Freedom:</span>
-              <span className={conflictCount === 0 ? 'text-emerald-600 font-bold' : 'text-rose-600 font-bold'}>
-                {conflictCount === 0 ? '100% (0 Clashes)' : `${conflictCount} Conflicts`}
+              <span className={conflictCount === null ? 'text-slate-400 font-bold' : conflictCount === 0 ? 'text-emerald-600 font-bold' : 'text-rose-600 font-bold'}>
+                {conflictCount === null ? 'Not generated' : conflictCount === 0 ? 'No clashes' : `${conflictCount} Conflicts`}
               </span>
             </div>
             <div className="flex items-center justify-between text-slate-600 font-medium">
               <span>Workload Balance:</span>
-              <span className="text-indigo-600 font-bold">{teacherScore}%</span>
+              <span className="text-indigo-600 font-bold">{teacherScore === null ? '—' : `${teacherScore}%`}</span>
             </div>
             <div className="flex items-center justify-between text-slate-600 font-medium">
               <span>Room Utilization:</span>
-              <span className="text-slate-700 font-bold">{roomUtil}%</span>
+              <span className="text-slate-700 font-bold">{roomUtil === null ? '—' : `${roomUtil}%`}</span>
             </div>
           </div>
         </div>

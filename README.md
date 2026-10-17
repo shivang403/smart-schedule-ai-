@@ -82,3 +82,18 @@ npm run build
 npm start
 ```
 Compiles both Vite client assets and bundles `server.ts` into a self-contained CommonJS artifact at `dist/server.cjs`.
+
+### Deploy to Vercel
+
+1. Import this GitHub repository into Vercel.
+2. Keep the framework preset as **Vite** and the build command as `npm run build`.
+3. Add the environment variables listed in `.env.example` in **Project Settings → Environment Variables**. `GEMINI_API_KEY` enables AI insights. The `VITE_FIREBASE_*` values are required for Firestore-backed saving and loading.
+4. Redeploy after adding or changing environment variables. Set `GEMINI_API_KEY` for Production and for Preview if you want AI insights on preview deployments.
+
+The `/api` folder contains Vercel Functions for `/api/health` and `/api/gemini/analyze-timetable`. The Express server in `server.ts` is used for local development and hosts that run a persistent Node server.
+
+### Security before using real schedules
+
+The current `firestore.rules` file permits unauthenticated public reads and writes to timetable collections. This is only suitable for a throwaway demo dataset. Do not put real teacher or institutional schedules in the database until Firebase Authentication is added and the rules restrict each user's access.
+
+Never commit `.env` or paste `GEMINI_API_KEY` into frontend code. Firebase web configuration values are public identifiers; access to Firestore must be protected by security rules.

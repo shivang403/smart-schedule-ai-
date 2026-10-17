@@ -27,6 +27,42 @@ interface SessionToSchedule {
   sessionIndex: number;
 }
 
+const SLOT_START_MINUTES = [9 * 60, 10 * 60, 11 * 60, 12 * 60, 14 * 60, 15 * 60];
+
+function parseTimeOfDay(value?: string): number | null {
+  if (!value) return null;
+  const match = value.trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?$/i);
+  if (!match) return null;
+
+  let hours = Number(match[1]);
+  const minutes = Number(match[2] || 0);
+  const meridiem = match[3]?.toUpperCase();
+  if (minutes > 59) return null;
+  if (meridiem) {
+    if (hours < 1 || hours > 12) return null;
+    hours = (hours % 12) + (meridiem === 'PM' ? 12 : 0);
+  } else if (hours > 23) {
+    return null;
+  }
+
+  return hours * 60 + minutes;
+}
+
+function areAdjacentTeachingSlots(previous: number, next: number): boolean {
+  // The fourth and fifth slots are separated by the 1–2 PM lunch break.
+  return next === previous + 1 && !(previous === 3 && next === 4);
+}
+
+function exceedsConsecutiveLimit(existingSlots: number[], candidate: number, limit: number): boolean {
+  const ordered = [...existingSlots, candidate].sort((a, b) => a - b);
+  let runLength = 1;
+  for (let i = 1; i < ordered.length; i++) {
+    runLength = areAdjacentTeachingSlots(ordered[i - 1], ordered[i]) ? runLength + 1 : 1;
+    if (runLength > limit) return true;
+  }
+  return false;
+}
+
 export function generateSmartTimetable(
   teachers: Teacher[],
   rooms: Room[],
@@ -69,7 +105,8 @@ export function generateSmartTimetable(
   const teacherUnavailableDays = new Map<string, Set<DayOfWeek>>();
   const teacherUnavailableSlots = new Map<string, Set<string>>();
   const roomUnavailableSlots = new Map<string, Set<string>>();
-  let maxConsecutiveLimit = 2; // default
+  let maxConsecutiveLimit: number | null = null;
+  let hasConfiguredConsecutiveLimit = false;
 
   for (const c of activeConstraints) {
     if (c.type === 'TEACHER_UNAVAILABLE_DAY' && c.targetId && c.value?.day) {
@@ -91,7 +128,14 @@ export function generateSmartTimetable(
       }
     }
     if (c.type === 'MAX_CONSECUTIVE_CLASSES') {
-      maxConsecutiveLimit = c.value?.maxConsecutive || 2;
+      const configuredLimit = Number(c.value?.maxConsecutive);
+      if (Number.isFinite(configuredLimit) && configuredLimit > 0) {
+        const normalizedLimit = Math.floor(configuredLimit);
+        maxConsecutiveLimit = hasConfiguredConsecutiveLimit && maxConsecutiveLimit !== null
+          ? Math.min(maxConsecutiveLimit, normalizedLimit)
+          : normalizedLimit;
+        hasConfiguredConsecutiveLimit = true;
+      }
     }
   }
 
@@ -193,18 +237,14 @@ export function generateSmartTimetable(
           continue;
         }
 
-        // 5. Teacher consecutive class check
+        // 5. Teacher daily and consecutive-class limits
         const currentTeacherSlots = teacherDaySlots.get(`${day}_${item.teacher.id}`) || [];
-        let consecutiveViolated = false;
-        if (currentTeacherSlots.includes(slotIndex - 1) && currentTeacherSlots.includes(slotIndex - 2)) {
-          consecutiveViolated = true;
-        }
-        if (currentTeacherSlots.includes(slotIndex + 1) && currentTeacherSlots.includes(slotIndex + 2)) {
-          consecutiveViolated = true;
-        }
-        if (currentTeacherSlots.includes(slotIndex - 1) && currentTeacherSlots.includes(slotIndex + 1)) {
-          consecutiveViolated = true;
-        }
+        const maxHoursPerDay = Math.max(1, item.teacher.maxHoursPerDay || 4);
+        if (currentTeacherSlots.length >= maxHoursPerDay) continue;
+        if (
+          maxConsecutiveLimit !== null &&
+          exceedsConsecutiveLimit(currentTeacherSlots, slotIndex, maxConsecutiveLimit)
+        ) continue;
 
         // Search for a free room
         for (const room of candidateRooms) {
@@ -218,10 +258,13 @@ export function generateSmartTimetable(
           if (rSlots && (rSlots.has(`${day}_${slotIndex}`) || rSlots.has(`${day}_${timeSlot}`))) {
             continue;
           }
+          const unavailableAfter = parseTimeOfDay(room.unavailableAfterTime);
+          if (unavailableAfter !== null && SLOT_START_MINUTES[slotIndex] >= unavailableAfter) {
+            continue;
+          }
 
           // Calculate penalty score
           let penalty = 0;
-          if (consecutiveViolated) penalty += 30;
           if (daySubCount >= 1) penalty += 20; // avoid same subject twice on same day
           // Slight preference for morning lectures
           if (slotIndex >= 4) penalty += 5;
@@ -437,7 +480,7 @@ export function generateSmartTimetable(
         indices.sort((a, b) => a - b);
         let consecutive = 1;
         for (let i = 1; i < indices.length; i++) {
-          if (indices[i] === indices[i - 1] + 1) {
+          if (areAdjacentTeachingSlots(indices[i - 1], indices[i])) {
             consecutive++;
             if (consecutive > maxLimit) {
               violationCount++;
@@ -472,6 +515,56 @@ export function generateSmartTimetable(
         details: 'Respected: Active administrative policy acknowledged.',
       });
     }
+  }
+
+  // Include availability limits stored directly on teacher and room records in the audit.
+  for (const teacher of teachers) {
+    const maxHoursPerDay = Math.max(1, teacher.maxHoursPerDay || 4);
+    const dailyLoads = new Map<DayOfWeek, number>();
+    for (const slot of scheduledSlots) {
+      if (slot.teacherId === teacher.id) {
+        dailyLoads.set(slot.day, (dailyLoads.get(slot.day) || 0) + 1);
+      }
+    }
+    const violations = Array.from(dailyLoads.values()).filter((count) => count > maxHoursPerDay).length;
+    if (teacher.maxHoursPerDay) {
+      constraintCheckResults.push({
+        constraintId: `teacher-daily-limit-${teacher.id}`,
+        title: `${teacher.name} daily teaching limit`,
+        description: `No more than ${maxHoursPerDay} classes per day.`,
+        priority: 'MEDIUM',
+        respected: violations === 0,
+        violationCount: violations,
+        details: violations === 0
+          ? `Respected: ${teacher.name} is within the ${maxHoursPerDay}-class daily limit.`
+          : `Violated on ${violations} day(s).`,
+      });
+    }
+  }
+
+  const roomsWithExplicitCutoff = new Set(
+    constraints
+      .filter((constraint) => constraint.type === 'ROOM_UNAVAILABLE_AFTER' && constraint.targetId)
+      .map((constraint) => constraint.targetId)
+  );
+  for (const room of rooms) {
+    const cutoff = parseTimeOfDay(room.unavailableAfterTime);
+    if (cutoff === null || roomsWithExplicitCutoff.has(room.id)) continue;
+
+    const violations = scheduledSlots.filter(
+      (slot) => slot.roomId === room.id && SLOT_START_MINUTES[slot.timeSlotIndex] >= cutoff
+    );
+    constraintCheckResults.push({
+      constraintId: `room-cutoff-${room.id}`,
+      title: `${room.name} unavailable after ${room.unavailableAfterTime}`,
+      description: `Classes cannot start at or after ${room.unavailableAfterTime}.`,
+      priority: 'HIGH',
+      respected: violations.length === 0,
+      violationCount: violations.length,
+      details: violations.length === 0
+        ? `Respected: No classes scheduled at or after ${room.unavailableAfterTime}.`
+        : `Violated: ${violations.length} class(es) scheduled after the room cutoff.`,
+    });
   }
 
   // Teacher Workload Balance Score (0 - 100)

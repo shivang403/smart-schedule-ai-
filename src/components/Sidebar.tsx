@@ -17,7 +17,7 @@ interface SidebarProps {
   setupSubTab?: 'teachers' | 'rooms' | 'subjects' | 'constraints';
   setSetupSubTab?: (sub: 'teachers' | 'rooms' | 'subjects' | 'constraints') => void;
   healthScore: number | null;
-  conflictCount: number;
+  conflictCount: number | null;
   dbInfo: {
     projectId: string;
     connected: boolean;
@@ -40,7 +40,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isOpenMobile,
   onCloseMobile,
 }) => {
-  const currentHealth = healthScore !== null ? healthScore : 94;
+  const currentHealth = healthScore;
 
   const handleNavClick = (tab: 'dashboard' | 'setup' | 'timetable' | 'constraints' | 'ai-insights') => {
     setActiveTab(tab);
@@ -221,19 +221,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
             Health Score
           </div>
           <div className="flex items-end gap-2">
-            <span className="text-3xl font-light text-white">{currentHealth}</span>
-            <span className="text-emerald-400 text-sm mb-1 font-medium">/ 100</span>
+            <span className="text-3xl font-light text-white">{currentHealth ?? '—'}</span>
+            {currentHealth !== null && <span className="text-emerald-400 text-sm mb-1 font-medium">/ 100</span>}
           </div>
           <div className="mt-3 h-1.5 w-full bg-slate-700 rounded-full overflow-hidden">
             <div
               className={`h-full transition-all duration-700 ${
-                currentHealth >= 80
+                currentHealth === null
+                  ? 'bg-slate-600'
+                  : currentHealth >= 80
                   ? 'bg-emerald-500'
                   : currentHealth >= 60
                   ? 'bg-amber-400'
                   : 'bg-rose-500'
               }`}
-              style={{ width: `${Math.min(100, Math.max(5, currentHealth))}%` }}
+              style={{ width: `${currentHealth === null ? 0 : Math.min(100, Math.max(5, currentHealth))}%` }}
             />
           </div>
         </div>
